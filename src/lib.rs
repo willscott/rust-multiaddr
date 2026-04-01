@@ -7,9 +7,14 @@ mod errors;
 mod onion_addr;
 mod protocol;
 
+#[cfg(feature = "custom")]
+mod custom;
+
 #[cfg(feature = "url")]
 mod from_url;
 
+#[cfg(feature = "custom")]
+pub use self::custom::{CustomProtocolDef, Registry, Transcoder};
 pub use self::errors::{Error, Result};
 pub use self::onion_addr::Onion3Addr;
 pub use self::protocol::Protocol;
@@ -223,7 +228,7 @@ impl Multiaddr {
     /// Returns &str identifiers for the protocol names themselves.
     /// This omits specific info like addresses, ports, peer IDs, and the like.
     /// Example: `"/ip4/127.0.0.1/tcp/5001"` would return `["ip4", "tcp"]`
-    pub fn protocol_stack(&self) -> ProtoStackIter {
+    pub fn protocol_stack(&self) -> ProtoStackIter<'_> {
         ProtoStackIter { parts: self.iter() }
     }
 }

@@ -12,6 +12,7 @@ version = "0.18.3"
 
 [features]
 default = ["url"]
+custom = []
 
 [dependencies]
 arrayref = "0.3"
