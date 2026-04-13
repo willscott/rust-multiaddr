@@ -333,6 +333,22 @@ impl<'a> Protocol<'a> {
                 let decoded = percent_encoding::percent_decode(s.as_bytes()).decode_utf8()?;
                 Ok(Protocol::HttpPath(decoded))
             }
+            #[cfg(feature = "custom")]
+            unknown if unknown.starts_with("unknown-") => {
+                let id_str = &unknown["unknown-".len()..];
+                let id: u32 = id_str
+                    .parse()
+                    .map_err(|_| Error::UnknownProtocolString(unknown.to_string()))?;
+                let data = match iter.next() {
+                    Some("") => vec![],
+                    Some(s) => match multibase::Base::Base58Btc.decode(s) {
+                        Ok(d) => d,
+                        Err(_) => return Err(Error::InvalidProtocolString),
+                    },
+                    None => vec![],
+                };
+                Ok(Protocol::Unknown(id, std::borrow::Cow::Owned(data)))
+            }
             unknown => Err(Error::UnknownProtocolString(unknown.to_string())),
         }
     }
@@ -522,6 +538,12 @@ impl<'a> Protocol<'a> {
                     rest,
                 ))
             }
+            #[cfg(feature = "custom")]
+            _ => Ok((
+                Protocol::Unknown(id, std::borrow::Cow::Borrowed(input)),
+                [].as_ref(),
+            )),
+            #[cfg(not(feature = "custom"))]
             _ => Err(Error::UnknownProtocolId(id)),
         }
     }

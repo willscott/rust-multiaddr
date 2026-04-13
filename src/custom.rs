@@ -159,18 +159,14 @@ impl Registry {
     ) -> Result<(Protocol<'a>, &'a [u8])> {
         let n_input = input;
         let id_res = unsigned_varint::decode::u32(n_input);
-        if let Ok((id, _rest)) = id_res {
-            if !self.by_code.contains_key(&id) {
-                return Err(Error::UnknownProtocolId(id));
+
+        if let Ok(res) = Protocol::from_bytes(input) {
+            let is_unknown = matches!(&res.0, Protocol::Unknown(_, _));
+            if !is_unknown {
+                return Ok(res);
             }
         }
 
-        if let Ok(res) = Protocol::from_bytes(input) {
-            return Ok(res);
-        }
-
-        let n_input = input;
-        let id_res = unsigned_varint::decode::u32(n_input);
         if let Ok((id, rest)) = id_res {
             if let Some(def) = self.get_by_code(id) {
                 let (data, out_rest) = if def.size == 0 {
@@ -193,6 +189,11 @@ impl Registry {
                 };
                 return Ok((Protocol::Custom { def, data }, out_rest));
             }
+
+            return Ok((
+                Protocol::Unknown(id, std::borrow::Cow::Borrowed(rest)),
+                [].as_ref(),
+            ));
         }
 
         Err(Error::UnknownProtocolId(
@@ -279,6 +280,15 @@ impl Registry {
         }
         Ok(addr)
     }
+
+    /// Format a Multiaddr into a string using this registry
+    pub fn to_string(&self, addr: &Multiaddr) -> String {
+        let mut s = String::new();
+        for p in self.iter(addr) {
+            s.push_str(&p.to_string());
+        }
+        s
+    }
 }
 
 #[cfg(test)]
@@ -356,8 +366,47 @@ mod tests {
         // Assert tcp fails now
         assert!(registry.try_from_str("/ip4/127.0.0.1/tcp/80").is_err());
 
-        // And similarly from bytes
+        // And similarly from bytes, it will now parse as Tcp since we natively fallback to standard protocols
         let vec = addr.to_vec();
-        assert!(registry.try_from_bytes(&vec).is_err());
+        let parsed_unknown = registry.try_from_bytes(&vec).unwrap();
+        let mut parsed_iter = registry.iter(&parsed_unknown);
+        assert!(matches!(parsed_iter.next(), Some(Protocol::Ip4(_))));
+        assert!(matches!(parsed_iter.next(), Some(Protocol::Tcp(80))));
+    }
+
+    #[test]
+    fn test_custom_protocol_registry_printing() {
+        let mut registry = Registry::new();
+        registry.register(CustomProtocolDef {
+            name: "my-custom",
+            code: 999,
+            size: -1,
+            path: false,
+            transcoder: Some(Box::new(SimpleTranscoder)),
+        });
+
+        // Parsed string multi addr with a custom protocol
+        let addr = registry
+            .try_from_str("/ip4/127.0.0.1/my-custom/helloworld")
+            .unwrap();
+
+        // 1. Printing with Registry works as expected, displaying the registered custom format
+        let registry_printed = registry.to_string(&addr);
+        assert_eq!(registry_printed, "/ip4/127.0.0.1/my-custom/helloworld");
+
+        // 2. Native Multiaddr printing gracefully falls back to unknown without panicking
+        let native_printed = addr.to_string();
+        // Native printing uses base58 for the rest of the bytes (the length varint and data).
+        // For size=-1, the length varint `10` followed by "helloworld" becomes '3ah4EQvnau95Y8K'
+        assert_eq!(native_printed, "/ip4/127.0.0.1/unknown-999/3ah4EQvnau95Y8K");
+
+        // 3. Confirm that the final 'unknown-999' round-trips on parse back to the same multiaddr
+        let parsed_back = native_printed
+            .parse::<Multiaddr>()
+            .expect("Should parse unknown protocol formatting natively");
+        assert_eq!(
+            parsed_back, addr,
+            "Round-trip multiaddr bytes must match the original instance precisely"
+        );
     }
 }
