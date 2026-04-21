@@ -20,6 +20,7 @@ pub trait Transcoder: Send + Sync {
 }
 
 /// A custom protocol definition.
+#[derive(Clone)]
 pub struct CustomProtocolDef {
     pub name: &'static str,
     pub code: u32,
@@ -27,7 +28,27 @@ pub struct CustomProtocolDef {
     /// `0` means no data. `> 0` means a fixed data length. `-1` denotes a length-prefixed protocol.
     pub size: i32,
     pub path: bool,
-    pub transcoder: Option<Box<dyn Transcoder>>,
+    pub transcoder: Option<Arc<dyn Transcoder>>,
+}
+
+impl CustomProtocolDef {
+    /// Create a new custom protocol definition.
+    pub fn new(
+        name: &'static str,
+        code: u32,
+        size: i32,
+        path: bool,
+        transcoder: Option<impl Transcoder + 'static>,
+    ) -> Self {
+        let transcoder = transcoder.map(|t| Arc::new(t) as Arc<dyn Transcoder>);
+        Self {
+            name,
+            code,
+            size,
+            path,
+            transcoder,
+        }
+    }
 }
 
 impl std::cmp::PartialEq for CustomProtocolDef {
@@ -52,8 +73,8 @@ impl std::fmt::Debug for CustomProtocolDef {
 /// A registry mapping protocol codes and names to their custom definitions.
 #[derive(Clone)]
 pub struct Registry {
-    by_code: HashMap<u32, Arc<CustomProtocolDef>>,
-    by_name: HashMap<String, Arc<CustomProtocolDef>>,
+    by_code: HashMap<u32, CustomProtocolDef>,
+    by_name: HashMap<String, CustomProtocolDef>,
 }
 
 impl Default for Registry {
@@ -93,18 +114,17 @@ impl Registry {
         }
         let name = def.name.to_string();
         let code = def.code;
-        let arc = Arc::new(def);
-        self.by_code.insert(code, arc.clone());
-        self.by_name.insert(name, arc);
+        self.by_code.insert(code, def.clone());
+        self.by_name.insert(name, def.clone());
     }
 
     /// Returns a registered custom protocol by its integer code.
-    pub fn get_by_code(&self, code: u32) -> Option<Arc<CustomProtocolDef>> {
+    pub fn get_by_code(&self, code: u32) -> Option<CustomProtocolDef> {
         self.by_code.get(&code).cloned()
     }
 
     /// Returns a registered custom protocol by its string name.
-    pub fn get_by_name(&self, name: &str) -> Option<Arc<CustomProtocolDef>> {
+    pub fn get_by_name(&self, name: &str) -> Option<CustomProtocolDef> {
         self.by_name.get(name).cloned()
     }
 
@@ -187,7 +207,13 @@ impl Registry {
                     let (d, r2) = r.split_at(len);
                     (std::borrow::Cow::Borrowed(d), r2)
                 };
-                return Ok((Protocol::Custom { def, data }, out_rest));
+                return Ok((
+                    Protocol::Custom {
+                        def: Arc::new(def),
+                        data,
+                    },
+                    out_rest,
+                ));
             }
 
             return Ok((
@@ -239,7 +265,7 @@ impl Registry {
                         .map_err(|_| Error::InvalidProtocolString)?
                 };
                 return Ok(Protocol::Custom {
-                    def,
+                    def: Arc::new(def),
                     data: std::borrow::Cow::Owned(data),
                 });
             }
@@ -314,13 +340,13 @@ mod tests {
     #[test]
     fn test_custom_protocol_registry() {
         let mut registry = Registry::new();
-        registry.register(CustomProtocolDef {
-            name: "my-custom",
-            code: 999,
-            size: -1,
-            path: false,
-            transcoder: Some(Box::new(SimpleTranscoder)),
-        });
+        registry.register(CustomProtocolDef::new(
+            "my-custom",
+            999,
+            -1,
+            false,
+            Some(SimpleTranscoder),
+        ));
 
         let addr = registry
             .try_from_str("/ip4/127.0.0.1/my-custom/helloworld")
@@ -377,13 +403,13 @@ mod tests {
     #[test]
     fn test_custom_protocol_registry_printing() {
         let mut registry = Registry::new();
-        registry.register(CustomProtocolDef {
-            name: "my-custom",
-            code: 999,
-            size: -1,
-            path: false,
-            transcoder: Some(Box::new(SimpleTranscoder)),
-        });
+        registry.register(CustomProtocolDef::new(
+            "my-custom",
+            999,
+            -1,
+            false,
+            Some(SimpleTranscoder),
+        ));
 
         // Parsed string multi addr with a custom protocol
         let addr = registry
