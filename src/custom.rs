@@ -274,7 +274,7 @@ impl Registry {
             percent_encoding::percent_decode(part.as_bytes()).collect::<Vec<u8>>()
         } else {
             let part = iter.next().ok_or(Error::InvalidProtocolString)?;
-            multibase::Base::Base58Btc
+            multibase::Base::Base64Url
                 .decode(part)
                 .map_err(|_| Error::InvalidProtocolString)?
         };
@@ -427,9 +427,9 @@ mod tests {
 
         // 2. Native Multiaddr printing gracefully falls back to unknown without panicking
         let native_printed = addr.to_string();
-        // Native printing uses base58 for the rest of the bytes (the length varint and data).
-        // For size=-1, the length varint `10` followed by "helloworld" becomes '3ah4EQvnau95Y8K'
-        assert_eq!(native_printed, "/ip4/127.0.0.1/unknown-999/3ah4EQvnau95Y8K");
+        // Native printing uses base64url for the rest of the bytes (the length varint and data).
+        // For size=-1, the length varint `10` followed by "helloworld" becomes 'CmhlbGxvd29ybGQ'
+        assert_eq!(native_printed, "/ip4/127.0.0.1/unknown-999/CmhlbGxvd29ybGQ");
 
         // 3. Confirm that the final 'unknown-999' round-trips on parse back to the same multiaddr
         let parsed_back = native_printed

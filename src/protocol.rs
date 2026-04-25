@@ -341,7 +341,7 @@ impl<'a> Protocol<'a> {
                     .map_err(|_| Error::UnknownProtocolString(unknown.to_string()))?;
                 let data = match iter.next() {
                     Some("") => vec![],
-                    Some(s) => match multibase::Base::Base58Btc.decode(s) {
+                    Some(s) => match multibase::Base::Base64Url.decode(s) {
                         Ok(d) => d,
                         Err(_) => return Err(Error::InvalidProtocolString),
                     },
@@ -899,13 +899,13 @@ impl fmt::Display for Protocol<'_> {
                         percent_encoding::percent_encode(s.as_bytes(), PATH_SEGMENT_ENCODE_SET);
                     write!(f, "/{encoded}")
                 } else {
-                    write!(f, "/{}", multibase::Base::Base58Btc.encode(data.as_ref()))
+                    write!(f, "/{}", multibase::Base::Base64Url.encode(data.as_ref()))
                 }
             }
             #[cfg(feature = "custom")]
             Unknown(_, data) => {
                 if !data.is_empty() {
-                    write!(f, "/{}", multibase::Base::Base58Btc.encode(data.as_ref()))?;
+                    write!(f, "/{}", multibase::Base::Base64Url.encode(data.as_ref()))?;
                 }
                 Ok(())
             }
